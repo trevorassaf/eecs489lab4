@@ -267,21 +267,54 @@ forward(unsigned char id, dhtmsg_t *dhtmsg, int size)
 void dhtn::
 handlejoin(int td, dhtmsg_t *dhtmsg)
 {
+    dhtmsg_t resp_msg;
+    resp_msg.dhtm_vers = DHTM_VERS;
+
   /* Task 1: */
   /* First check if the joining node's ID collides with predecessor or
      self.  If so, send back to joining node a REID message.  See
      dhtn.h for packet format.
   */
+  const dhtnode_t predecessor = finger[DHTN_FINGERS];
+
+  if (predecessor.dhtn_ID == dhtmsg->dhtm_node.dhtn_ID ||
+      self.dhtn_ID == dhtmsg->dhtm_node.dhtn_ID)
+  {
+    // Report join collision
+    fprintf(
+        stderr,
+        "Collision in join request! ID(self) = %zu, ID(predecessor) = %zu, ID(join-request) = %zu\n",
+        self.dhtn_ID,
+        predecessor.dhtn_ID,
+        dhtmsg->dhtm_node.dhtn_ID
+    );
+
+    // Inform client of ID collision
+    resp_msg.dhtm_type = REID;
+
+    int bytes = ::send(td, (char *) &resp_msg, sizeof(resp_msg), 0);
+    net_assert((bytes != sizeof(resp_msg)), "dhtn::handlejoin: REID");
+    
+    int is_closed = close(td);
+    net_assert((is_closed != 0), "dhtn::handlejoin: couldn't close REID socket");
+    return;
+
+  } 
+  
   /* Otherwise, next check if ID is in range (finger[DHTN_FINGERS].dhtn_ID,
      self.dhtn_ID].  If so, send a welcome message to joining node,
      with the current node as the joining node's successor and the
      current node's predecessor as the joining node's predecessor.
-     Again, see dhtn.h for packet format.  Next make the joining node
+     Again, see dhtn.h for packet format.  
+     
+     Next make the joining node
      the current node's new predecessor.  At this point, the current
      node's old predecessor is still pointing to the current node,
      instead of the joining node, as its successor.  This will be
      fixed "on demand" in the next case, in conjunction with the
-     dhtn::forward() function.  If the current node were the
+     dhtn::forward() function.  
+     
+     If the current node were the
      first/only node in the identifier ring, as indicated by its ID
      being the same as that of its successor's ID, set both its
      successor and predecessor to the new joining node.
@@ -290,6 +323,36 @@ handlejoin(int td, dhtmsg_t *dhtmsg)
      that the ID range of the current node has changed.  Call
      imgdb::reloaddb() with the new ID range to reload the image database.
   */
+  
+  if (ID_inrange(dhtmsg->dhtn_ID, finger[DHTN_FINGERS].dhtn_ID, self.dhtn_ID)) {
+    // Assemble welcome-packet
+    dhtwlcm_t wlcm_msg;
+    wlcm_msg.dhtm_vers = resp_msg.dhtm_vers;
+    wlcm_msg.dhtm_type = DHTM_WLCM;
+    wlcm_msg.dhtm_node = self;
+    wlcm_msg.dhtm_pred = finger[DHTN_FINGERS]; 
+
+    // Update current node because we've added a new predecessor
+    finger[DHTN_FINGERS] = dhtmsg->dhtm_node;
+
+    if (self.dhtm_ID == finger[0].dhtm_ID) {
+      finger[0] == dhtmsg->dhtm_node;
+    }
+
+    imgdb::reloaddb(finger[DHTN_FINGERS].dhtn_ID, self.dhtn_ID);
+   
+    // Send welcome-packet
+    int bytes = ::send(td, (char *) &wlcm_msg, sizeof(wlcm_msg), 0);
+    net_assert((bytes != sizeof(wlcm_msg)), "dhtn::handlejoin: couldn't send WELCOME message");
+    
+    int is_closed = close(td);
+    net_assert((is_closed != 0), "dhtn::handlejoin: couldn't close WELCOME socket");
+    return;
+
+  } 
+  
+  if ((DHTM_ATLOC | DHTM_JOIN) == dhtmsg->dhtm_type) {
+  
   /* Otherwise, next check if sender expects the joining node's ID to
      be in range even though it failed our own test.  Sender indicates
      its expectation by setting the highest order bit of the type
@@ -299,11 +362,18 @@ handlejoin(int td, dhtmsg_t *dhtmsg)
      ID to be in our range, but it is not, it probably means that the
      sender's successor information has become inconsistent due to
      node being added to the DHT, in which case, send a DHTM_REDRT
-     message to the SENDER.  Note that in the first two cases, we send
+     message to the SENDER.  
+     
+     Note that in the first two cases, we send
      the message to the joining node, but in this case, we send the
      message to the sender of the current JOIN packet.  Again, see
      dhtn.h for packet format.
   */
+
+
+
+  } else {
+  
   /* Finally, if none of the above applies, we forward the JOIN
      message to the next node, which in Lab 4 is just the successor
      node.  For programming assignment 2, we'll use the finger table
@@ -311,8 +381,10 @@ handlejoin(int td, dhtmsg_t *dhtmsg)
      should call dhtn::forward() to perform the forwarding task.
      Don't forget to close the sender socket when you don't need it anymore.
   */
+  }
   /* YOUR CODE HERE */
 
+  // Transmit response
   return;
 }
 
